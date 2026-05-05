@@ -1,28 +1,53 @@
 const express = require("express");
+const admin = require("firebase-admin");
+
 const app = express();
+app.use(express.urlencoded({ extended: true }));
 
-app.use(express.json());
+const serviceAccount = require("./firebase-key.json");
 
-let events = [];
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
-app.get("/", (req, res) => {
+const db = admin.firestore();
+
+app.get("/", async (req, res) => {
+
+  const snapshot = await db.collection("events").get();
+
+  let list = "";
+
+  snapshot.forEach(doc => {
+    const d = doc.data();
+    list += `<li>${d.title} → Son gün: ${d.deadline}</li>`;
+  });
+
   res.send(`
-    <h1>⚖️ Hukuk Hatırlatıcı</h1>
+    <h1>⚖️ Hukuk Takip Sistemi</h1>
 
     <form method="POST" action="/add">
-      <input name="title" placeholder="Başlık" />
-      <input name="days" placeholder="Süre (gün)" />
+      <input name="title" placeholder="Başlık" required />
+      <input name="days" placeholder="Gün" required />
       <button type="submit">Ekle</button>
     </form>
 
-    <p>Uygulama aktif</p>
+    <h3>Kayıtlar</h3>
+    <ul>${list}</ul>
   `);
 });
 
-app.post("/add", express.urlencoded({ extended: true }), (req, res) => {
+app.post("/add", async (req, res) => {
   const { title, days } = req.body;
 
-  events.push({ title, days });
+  const deadline = new Date();
+  deadline.setDate(deadline.getDate() + parseInt(days));
+
+  await db.collection("events").add({
+    title,
+    days,
+    deadline: deadline.toISOString().slice(0,10)
+  });
 
   res.redirect("/");
 });

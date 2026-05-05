@@ -3,10 +3,15 @@ const app = express();
 
 app.use(express.json());
 
+let events = [];
+
 app.get("/", (req, res) => {
-  res.send("Hukuk uygulaması çalışıyor 🚀");
+  res.send(`
+    <h2>⚖️ Hukuk Hatırlatıcı Aktif</h2>
+    <p>Sistem çalışıyor</p>
+  `);
 });
 
-app.listen(3000, () => {
-  console.log("Server çalışıyor: http://localhost:3000");
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Çalışıyor");
 });

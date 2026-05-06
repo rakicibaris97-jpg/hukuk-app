@@ -4,7 +4,6 @@ const admin = require("firebase-admin");
 const app = express();
 app.use(express.urlencoded({ extended: true }));
 
-// 🔐 Firebase bağlantısı (Render ENV: FIREBASE_KEY)
 const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 admin.initializeApp({
@@ -14,48 +13,67 @@ admin.initializeApp({
 const db = admin.firestore();
 
 /* =========================
-   📅 TAKVİM (MODERN)
+   ⏳ COUNTDOWN MOTOR
 ========================= */
-function generateCalendar() {
+function getRemainingDays(deadline) {
+  const now = new Date();
+  const end = new Date(deadline);
+  const diff = end - now;
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+/* =========================
+   📅 MODERN TAKVİM (AY GEÇİŞLİ)
+========================= */
+function generateCalendar(monthOffset = 0, events = []) {
   const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
+  const date = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+
+  const year = date.getFullYear();
+  const month = date.getMonth();
 
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   let html = `
+  <div style="margin:10px 0;">
+    <a href="?m=${monthOffset - 1}">⬅ Önceki</a>
+    <b style="margin:0 20px;">${month + 1}/${year}</b>
+    <a href="?m=${monthOffset + 1}">Sonraki ➡</a>
+  </div>
+
   <style>
-    body { font-family: Arial; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ddd; text-align: center; padding: 10px; }
-    th { background: #f4f4f4; }
-    .today { background: #ffe082; font-weight: bold; }
+    table { border-collapse: collapse; width:100%; }
+    td, th { border:1px solid #ddd; text-align:center; padding:8px; }
+    .today { background:#ffe082; }
+    .court { background:#b9f6ca; border-radius:50%; }
+    .event { background:#ffcdd2; width:8px; height:8px; border-radius:50%; display:inline-block; }
   </style>
 
-  <table>
-    <tr>
+  <table><tr>
   `;
 
-  const days = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cts", "Paz"];
+  const days = ["Pzt","Sal","Çar","Per","Cum","Cts","Paz"];
   days.forEach(d => html += `<th>${d}</th>`);
   html += "</tr><tr>";
 
-  let dayOffset = (firstDay === 0) ? 6 : firstDay - 1;
+  let offset = (firstDay === 0) ? 6 : firstDay - 1;
 
-  for (let i = 0; i < dayOffset; i++) {
-    html += "<td></td>";
-  }
+  for (let i = 0; i < offset; i++) html += "<td></td>";
 
   for (let day = 1; day <= daysInMonth; day++) {
 
-    const isToday = day === today.getDate();
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
 
-    html += `<td class="${isToday ? "today" : ""}">${day}</td>`;
+    const court = events.find(e => e.courtDate === dateStr);
+    const hasEvent = events.find(e => e.deadline === dateStr);
 
-    if ((day + dayOffset) % 7 === 0) {
-      html += "</tr><tr>";
-    }
+    html += `<td class="${court ? 'court' : ''}">
+      ${day}
+      ${hasEvent ? '<div class="event"></div>' : ''}
+    </td>`;
+
+    if ((day + offset) % 7 === 0) html += "</tr><tr>";
   }
 
   html += "</tr></table>";
@@ -68,51 +86,63 @@ function generateCalendar() {
 ========================= */
 app.get("/", async (req, res) => {
 
+  const monthOffset = parseInt(req.query.m || 0);
+
   const snapshot = await db.collection("events").get();
 
+  let events = [];
   let list = "";
 
   snapshot.forEach(doc => {
     const d = doc.data();
-    list += `<li><b>${d.title}</b> → Son gün: ${d.deadline}</li>`;
+
+    const remaining = getRemainingDays(d.deadline);
+
+    events.push(d);
+
+    list += `
+      <li>
+        <span style="${d.done ? 'text-decoration:line-through' : ''}">
+          ${d.title} → ${d.deadline} (${remaining} gün)
+        </span>
+
+        ${!d.done ? `<a href="/done?id=${doc.id}">✔</a>` : ""}
+
+        <a href="/delete?id=${doc.id}">🗑</a>
+      </li>
+    `;
   });
 
   res.send(`
-    <h1>⚖️ Hukuk Takip Sistemi</h1>
-
-    <h3>➕ Yeni Kayıt</h3>
+    <h1>⚖️ Hukuk Paneli v3</h1>
 
     <form method="POST" action="/add">
-      <input name="title" placeholder="Dosya / İşlem" required />
+      <input name="title" placeholder="Dosya" required />
 
-      <div style="margin-top:10px;">
-        <button name="days" value="1">1 Gün</button>
-        <button name="days" value="3">3 Gün</button>
-        <button name="days" value="5">5 Gün</button>
-        <button name="days" value="7">7 Gün</button>
-        <button name="days" value="14">14 Gün</button>
+      <div>
+        <button name="days" value="1">1</button>
+        <button name="days" value="3">3</button>
+        <button name="days" value="5">5</button>
+        <button name="days" value="7">7</button>
+        <button name="days" value="14">14</button>
         <button name="days" value="30">1 Ay</button>
       </div>
 
-      <br>
+      <input name="courtDate" placeholder="Duruşma (YYYY-MM-DD)" />
 
-      <input name="courtDate" placeholder="Duruşma Günü (YYYY-MM-DD)" />
-
-      <br><br>
-
-      <button type="submit">Kaydet</button>
+      <button>Kaydet</button>
     </form>
 
-    <h3>📌 Kayıtlar</h3>
+    <h3>📌 İşlemler</h3>
     <ul>${list}</ul>
 
     <h3>📅 Takvim</h3>
-    ${generateCalendar()}
+    ${generateCalendar(monthOffset, events)}
   `);
 });
 
 /* =========================
-   ➕ KAYIT EKLE
+   ➕ EKLE
 ========================= */
 app.post("/add", async (req, res) => {
 
@@ -124,10 +154,33 @@ app.post("/add", async (req, res) => {
   await db.collection("events").add({
     title,
     days,
-    deadline: deadline.toISOString().slice(0, 10),
+    deadline: deadline.toISOString().slice(0,10),
     courtDate: courtDate || null,
+    done: false,
     createdAt: new Date()
   });
+
+  res.redirect("/");
+});
+
+/* =========================
+   ✔ TAMAMLANDI
+========================= */
+app.get("/done", async (req, res) => {
+
+  await db.collection("events").doc(req.query.id).update({
+    done: true
+  });
+
+  res.redirect("/");
+});
+
+/* =========================
+   🗑 SİL
+========================= */
+app.get("/delete", async (req, res) => {
+
+  await db.collection("events").doc(req.query.id).delete();
 
   res.redirect("/");
 });
@@ -136,5 +189,5 @@ app.post("/add", async (req, res) => {
    🚀 SERVER
 ========================= */
 app.listen(process.env.PORT || 3000, () => {
-  console.log("⚖️ Hukuk sistemi çalışıyor");
+  console.log("v3 çalışıyor");
 });
